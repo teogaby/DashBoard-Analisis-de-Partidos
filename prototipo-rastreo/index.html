@@ -10,7 +10,7 @@
     <div class="app">
       <header class="app__header">
         <h1>Rastreo Asistido de Jugador</h1>
-        <p>Selecciona una caja y usa OpenCV.js para seguimiento automático aproximado.</p>
+        <p>Template matching experimental con OpenCV.js (sin frameworks).</p>
       </header>
 
       <section class="panel panel--controls">
@@ -30,8 +30,11 @@
         <div class="video-wrapper">
           <video id="video" controls preload="metadata"></video>
           <canvas id="overlayCanvas"></canvas>
+          <canvas id="processingCanvas" class="hidden-canvas"></canvas>
         </div>
-        <p id="statusBadge" class="status-badge">Estado: listo para cargar vídeo</p>
+        <p id="statusBadge" class="status-badge">Estado: listo</p>
+        <p id="scoreText" class="score-text">Score actual: -</p>
+        <div id="logPanel" class="log-panel"></div>
       </section>
 
       <section class="dashboard-grid">
@@ -43,9 +46,7 @@
           <h2>Eventos de tracking</h2>
           <div class="table-wrap">
             <table>
-              <thead>
-                <tr><th>#</th><th>Tiempo</th><th>X</th><th>Y</th><th>W</th><th>H</th><th>Score</th></tr>
-              </thead>
+              <thead><tr><th>#</th><th>Tiempo</th><th>X</th><th>Y</th><th>W</th><th>H</th><th>Score</th></tr></thead>
               <tbody id="eventsBody"></tbody>
             </table>
           </div>
