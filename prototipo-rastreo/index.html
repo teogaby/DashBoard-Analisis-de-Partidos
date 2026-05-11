@@ -10,7 +10,7 @@
     <div class="app">
       <header class="app__header">
         <h1>Rastreo Manual de Jugador</h1>
-        <p>Prototipo local para etiquetar acciones sobre vídeo de fútbol.</p>
+        <p>Dibuja una caja sobre el jugador para registrar su recorrido y acciones.</p>
       </header>
 
       <section class="panel panel--controls">
@@ -44,7 +44,7 @@
       </section>
 
       <section class="panel panel--video">
-        <div id="videoWrapper" class="video-wrapper">
+        <div class="video-wrapper">
           <video id="video" controls preload="metadata"></video>
           <canvas id="overlayCanvas" aria-label="Canvas de rastreo"></canvas>
         </div>
@@ -68,6 +68,9 @@
                   <th>Acción</th>
                   <th>X</th>
                   <th>Y</th>
+                  <th>W</th>
+                  <th>H</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="eventsBody"></tbody>
