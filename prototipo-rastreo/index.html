@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Prototipo de Rastreo Manual - Fútbol</title>
+    <title>Prototipo de Rastreo Asistido - OpenCV.js</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app">
       <header class="app__header">
-        <h1>Rastreo Manual de Jugador</h1>
-        <p>Dibuja una caja sobre el jugador para registrar su recorrido y acciones.</p>
+        <h1>Rastreo Asistido de Jugador</h1>
+        <p>Selecciona una caja y usa OpenCV.js para seguimiento automático aproximado.</p>
       </header>
 
       <section class="panel panel--controls">
@@ -18,60 +18,33 @@
           <label for="videoInput">Cargar vídeo local</label>
           <input id="videoInput" type="file" accept="video/*" />
         </div>
-
         <div class="control-group control-group--inline">
           <button id="playPauseBtn" disabled>▶ Reproducir</button>
-          <button id="clearBtn" disabled>Limpiar rastreo</button>
-        </div>
-
-        <div class="control-group">
-          <label for="playerInput">Jugador (nombre o dorsal)</label>
-          <input id="playerInput" type="text" placeholder="Ej: 10 - Delantero" />
-        </div>
-
-        <div class="control-group">
-          <label for="actionSelect">Tipo de acción</label>
-          <select id="actionSelect">
-            <option value="posición">posición</option>
-            <option value="presión">presión</option>
-            <option value="recuperación">recuperación</option>
-            <option value="pérdida">pérdida</option>
-            <option value="pase">pase</option>
-            <option value="duelo">duelo</option>
-            <option value="desmarque">desmarque</option>
-          </select>
+          <button id="startTrackingBtn" disabled>Iniciar seguimiento</button>
+          <button id="stopTrackingBtn" disabled>Detener seguimiento</button>
+          <button id="resetTrackingBtn" disabled>Reiniciar seguimiento</button>
         </div>
       </section>
 
       <section class="panel panel--video">
         <div class="video-wrapper">
           <video id="video" controls preload="metadata"></video>
-          <canvas id="overlayCanvas" aria-label="Canvas de rastreo"></canvas>
+          <canvas id="overlayCanvas"></canvas>
         </div>
+        <p id="statusBadge" class="status-badge">Estado: listo para cargar vídeo</p>
       </section>
 
       <section class="dashboard-grid">
-        <article class="panel panel--metrics">
+        <article class="panel">
           <h2>Métricas</h2>
           <ul id="metricsList" class="metrics-list"></ul>
         </article>
-
-        <article class="panel panel--events">
-          <h2>Eventos</h2>
+        <article class="panel">
+          <h2>Eventos de tracking</h2>
           <div class="table-wrap">
             <table>
               <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Tiempo</th>
-                  <th>Jugador</th>
-                  <th>Acción</th>
-                  <th>X</th>
-                  <th>Y</th>
-                  <th>W</th>
-                  <th>H</th>
-                  <th></th>
-                </tr>
+                <tr><th>#</th><th>Tiempo</th><th>X</th><th>Y</th><th>W</th><th>H</th><th>Score</th></tr>
               </thead>
               <tbody id="eventsBody"></tbody>
             </table>
@@ -80,6 +53,7 @@
       </section>
     </div>
 
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
