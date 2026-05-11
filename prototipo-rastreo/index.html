@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prototipo de Rastreo Manual - Fútbol</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <h1>Rastreo Manual de Jugador</h1>
+        <p>Prototipo local para etiquetar acciones sobre vídeo de fútbol.</p>
+      </header>
+
+      <section class="panel panel--controls">
+        <div class="control-group">
+          <label for="videoInput">Cargar vídeo local</label>
+          <input id="videoInput" type="file" accept="video/*" />
+        </div>
+
+        <div class="control-group control-group--inline">
+          <button id="playPauseBtn" disabled>▶ Reproducir</button>
+          <button id="clearBtn" disabled>Limpiar rastreo</button>
+        </div>
+
+        <div class="control-group">
+          <label for="playerInput">Jugador (nombre o dorsal)</label>
+          <input id="playerInput" type="text" placeholder="Ej: 10 - Delantero" />
+        </div>
+
+        <div class="control-group">
+          <label for="actionSelect">Tipo de acción</label>
+          <select id="actionSelect">
+            <option value="posición">posición</option>
+            <option value="presión">presión</option>
+            <option value="recuperación">recuperación</option>
+            <option value="pérdida">pérdida</option>
+            <option value="pase">pase</option>
+            <option value="duelo">duelo</option>
+            <option value="desmarque">desmarque</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="panel panel--video">
+        <div id="videoWrapper" class="video-wrapper">
+          <video id="video" controls preload="metadata"></video>
+          <canvas id="overlayCanvas" aria-label="Canvas de rastreo"></canvas>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel panel--metrics">
+          <h2>Métricas</h2>
+          <ul id="metricsList" class="metrics-list"></ul>
+        </article>
+
+        <article class="panel panel--events">
+          <h2>Eventos</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Tiempo</th>
+                  <th>Jugador</th>
+                  <th>Acción</th>
+                  <th>X</th>
+                  <th>Y</th>
+                </tr>
+              </thead>
+              <tbody id="eventsBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
