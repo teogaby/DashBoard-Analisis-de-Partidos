@@ -1,44 +1,59 @@
-const videoInput = document.getElementById('videoInput');
-const video = document.getElementById('video');
-const overlayCanvas = document.getElementById('overlayCanvas');
-const overlayCtx = overlayCanvas.getContext('2d');
-const processingCanvas = document.getElementById('processingCanvas');
-const processingCtx = processingCanvas.getContext('2d');
-const playPauseBtn = document.getElementById('playPauseBtn');
-const startBtn = document.getElementById('startTrackingBtn');
-const stopBtn = document.getElementById('stopTrackingBtn');
-const resetBtn = document.getElementById('resetTrackingBtn');
-const metricsList = document.getElementById('metricsList');
-const eventsBody = document.getElementById('eventsBody');
-const statusBadge = document.getElementById('statusBadge');
-const scoreText = document.getElementById('scoreText');
-const logPanel = document.getElementById('logPanel');
+// ============================================================
+// RASTREO EXPERIMENTAL POR COLOR DOMINANTE (CAMISETA)
+// ============================================================
+// Este archivo implementa un prototipo de tracking SIN OpenCV,
+// usando únicamente HTML Canvas + JavaScript puro.
+//
+// Fases:
+// 1) Usuario carga vídeo y pausa en el frame deseado.
+// 2) Usuario dibuja caja sobre el jugador.
+// 3) Se calcula color objetivo (promedio RGB) dentro de la caja.
+// 4) Por cada frame: se buscan ventanas candidatas alrededor
+//    de la última posición y se elige la más parecida por color.
+// 5) La caja se mueve automáticamente y se guarda el rastro.
+// ============================================================
 
-let cvReady = false;
-let isTracking = false;
+const $ = (id) => document.getElementById(id);
+const videoInput = $('videoInput');
+const video = $('video');
+const overlayCanvas = $('overlayCanvas');
+const overlayCtx = overlayCanvas.getContext('2d');
+const processingCanvas = $('processingCanvas');
+const processingCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
+const playPauseBtn = $('playPauseBtn');
+const startTrackingBtn = $('startTrackingBtn');
+const stopTrackingBtn = $('stopTrackingBtn');
+const clearTrackingBtn = $('clearTrackingBtn');
+const sensitivityInput = $('sensitivityInput');
+const searchSizeInput = $('searchSizeInput');
+const sensitivityValue = $('sensitivityValue');
+const searchSizeValue = $('searchSizeValue');
+const statusBadge = $('statusBadge');
+const targetColorText = $('targetColorText');
+const debugList = $('debugList');
+const logPanel = $('logPanel');
+const eventsBody = $('eventsBody');
+
 let isDrawing = false;
-let selectedBox = null;
+let isTracking = false;
 let dragStart = null;
-let templateMat = null;
+let selectedBox = null;
 let lastBox = null;
+let targetColor = null; // {r,g,b}
+let currentScore = 0;
 let rafId = null;
 let lastSavedTime = -1;
-const trackingEvents = [];
+const trackingPoints = [];
 
-function addLog(message) {
-  const line = document.createElement('div');
-  line.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
-  logPanel.prepend(line);
+function log(msg) {
+  const item = document.createElement('div');
+  item.textContent = `${new Date().toLocaleTimeString()} - ${msg}`;
+  logPanel.prepend(item);
 }
 
-function setStatus(text, low = false) {
-  statusBadge.textContent = `Estado: ${text}`;
-  statusBadge.classList.toggle('low-score', low);
-}
-
-function setScore(score, low = false) {
-  scoreText.textContent = `Score actual: ${score}`;
-  scoreText.classList.toggle('low-score', low);
+function setStatus(msg, weak = false) {
+  statusBadge.textContent = `Estado: ${msg}`;
+  statusBadge.classList.toggle('low-score', weak);
 }
 
 function syncCanvasSize() {
@@ -46,17 +61,22 @@ function syncCanvasSize() {
   const h = video.videoHeight || video.clientHeight;
   overlayCanvas.width = w; overlayCanvas.height = h;
   processingCanvas.width = w; processingCanvas.height = h;
-  redrawOverlay();
+  drawOverlay();
 }
 
-function getScaledPos(e) {
-  const r = overlayCanvas.getBoundingClientRect();
-  return { x: (e.clientX - r.left) * (overlayCanvas.width / r.width), y: (e.clientY - r.top) * (overlayCanvas.height / r.height) };
+function getScaledMouse(evt) {
+  const rect = overlayCanvas.getBoundingClientRect();
+  return {
+    x: ((evt.clientX - rect.left) * overlayCanvas.width) / rect.width,
+    y: ((evt.clientY - rect.top) * overlayCanvas.height) / rect.height
+  };
 }
 
 function normalizeRect(a, b) {
-  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-  const width = Math.abs(a.x - b.x), height = Math.abs(a.y - b.y);
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const width = Math.abs(a.x - b.x);
+  const height = Math.abs(a.y - b.y);
   return { x, y, width, height, cx: x + width / 2, cy: y + height / 2 };
 }
 
@@ -67,176 +87,252 @@ function drawBox(box, color = '#31d66f', dashed = false) {
   overlayCtx.strokeStyle = color;
   overlayCtx.lineWidth = 2;
   overlayCtx.strokeRect(box.x, box.y, box.width, box.height);
-  overlayCtx.beginPath(); overlayCtx.fillStyle = color;
-  overlayCtx.arc(box.cx, box.cy, 4, 0, Math.PI * 2); overlayCtx.fill();
+  overlayCtx.beginPath();
+  overlayCtx.fillStyle = color;
+  overlayCtx.arc(box.cx, box.cy, 4, 0, Math.PI * 2);
+  overlayCtx.fill();
   overlayCtx.restore();
 }
 
-function redrawOverlay() {
+function drawOverlay() {
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  if (trackingEvents.length > 1) {
-    overlayCtx.beginPath(); overlayCtx.strokeStyle = '#31d66f'; overlayCtx.lineWidth = 2;
-    trackingEvents.forEach((p, i) => (i === 0 ? overlayCtx.moveTo(p.cx, p.cy) : overlayCtx.lineTo(p.cx, p.cy)));
+
+  if (trackingPoints.length > 1) {
+    overlayCtx.beginPath();
+    overlayCtx.strokeStyle = '#31d66f';
+    overlayCtx.lineWidth = 2;
+    trackingPoints.forEach((p, i) => (i === 0 ? overlayCtx.moveTo(p.cx, p.cy) : overlayCtx.lineTo(p.cx, p.cy)));
     overlayCtx.stroke();
   }
-  trackingEvents.forEach((p) => drawBox(p, p.score < 0.45 ? '#ff6a6a' : '#31d66f'));
+
+  trackingPoints.forEach((p) => drawBox(p, p.score < 0.45 ? '#ff6a6a' : '#31d66f'));
   if (selectedBox && !isTracking) drawBox(selectedBox, '#ffffff', true);
 }
 
-function renderMetrics() {
-  const points = trackingEvents.length;
-  const duration = points ? trackingEvents[points - 1].time - trackingEvents[0].time : 0;
-  const avgScore = points ? trackingEvents.reduce((s, e) => s + e.score, 0) / points : 0;
-  let dist = 0;
-  for (let i = 1; i < points; i += 1) dist += Math.hypot(trackingEvents[i].cx - trackingEvents[i - 1].cx, trackingEvents[i].cy - trackingEvents[i - 1].cy);
-  metricsList.innerHTML = `<li>Puntos capturados: <strong>${points}</strong></li><li>Duración seguida: <strong>${duration.toFixed(2)} s</strong></li><li>Distancia relativa aprox.: <strong>${dist.toFixed(2)} px</strong></li><li>Score medio: <strong>${avgScore.toFixed(3)}</strong></li>`;
+function drawFrameToProcessingCanvas() {
+  processingCtx.drawImage(video, 0, 0, processingCanvas.width, processingCanvas.height);
+}
+
+function getAverageColorInRect(rect) {
+  // Lee todos los píxeles de la ROI y promedia RGB.
+  const x = Math.max(0, Math.floor(rect.x));
+  const y = Math.max(0, Math.floor(rect.y));
+  const w = Math.max(1, Math.floor(rect.width));
+  const h = Math.max(1, Math.floor(rect.height));
+
+  const imageData = processingCtx.getImageData(x, y, w, h).data;
+  let r = 0, g = 0, b = 0;
+  const totalPixels = imageData.length / 4;
+
+  for (let i = 0; i < imageData.length; i += 4) {
+    r += imageData[i];
+    g += imageData[i + 1];
+    b += imageData[i + 2];
+  }
+
+  return { r: r / totalPixels, g: g / totalPixels, b: b / totalPixels };
+}
+
+function colorDistance(c1, c2) {
+  // Distancia euclídea RGB normalizada a [0..1] aprox.
+  const dr = c1.r - c2.r;
+  const dg = c1.g - c2.g;
+  const db = c1.b - c2.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db) / 441.6729559;
+}
+
+function computeScore(candidateColor) {
+  // Score alto = mejor coincidencia.
+  const dist = colorDistance(targetColor, candidateColor);
+  const sensitivity = Number(sensitivityInput.value); // 20..180
+  const tolerance = sensitivity / 255;
+  return Math.max(0, 1 - dist / Math.max(0.05, tolerance));
+}
+
+function findBestMatchAroundLastBox() {
+  // Busca ventanas candidatas en una rejilla alrededor de la última caja.
+  const area = Number(searchSizeInput.value);
+  const step = Math.max(4, Math.round(Math.min(lastBox.width, lastBox.height) / 4));
+
+  let best = null;
+  let bestScore = -1;
+
+  const startX = Math.max(0, Math.floor(lastBox.x - area));
+  const endX = Math.min(processingCanvas.width - lastBox.width, Math.ceil(lastBox.x + area));
+  const startY = Math.max(0, Math.floor(lastBox.y - area));
+  const endY = Math.min(processingCanvas.height - lastBox.height, Math.ceil(lastBox.y + area));
+
+  for (let y = startY; y <= endY; y += step) {
+    for (let x = startX; x <= endX; x += step) {
+      const candidateRect = { x, y, width: lastBox.width, height: lastBox.height, cx: x + lastBox.width / 2, cy: y + lastBox.height / 2 };
+      const candidateColor = getAverageColorInRect(candidateRect);
+      const score = computeScore(candidateColor);
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidateRect;
+      }
+    }
+  }
+
+  return { bestRect: best, bestScore };
+}
+
+function saveTrackingPoint(box, score) {
+  const point = { ...box, time: video.currentTime, score };
+  trackingPoints.push(point);
+  if (Math.abs(video.currentTime - lastSavedTime) > 0.04) {
+    lastSavedTime = video.currentTime;
+  }
 }
 
 function renderTable() {
   eventsBody.innerHTML = '';
-  trackingEvents.forEach((e, i) => {
+  trackingPoints.forEach((p, i) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${i + 1}</td><td>${e.time.toFixed(3)}s</td><td>${Math.round(e.x)}</td><td>${Math.round(e.y)}</td><td>${Math.round(e.width)}</td><td>${Math.round(e.height)}</td><td>${e.score.toFixed(3)}</td>`;
-    tr.addEventListener('click', () => { video.currentTime = e.time; redrawOverlay(); });
+    tr.innerHTML = `<td>${i + 1}</td><td>${p.time.toFixed(3)}s</td><td>${Math.round(p.x)}</td><td>${Math.round(p.y)}</td><td>${Math.round(p.width)}</td><td>${Math.round(p.height)}</td><td>${p.score.toFixed(3)}</td>`;
+    tr.addEventListener('click', () => { video.currentTime = p.time; drawOverlay(); });
     eventsBody.appendChild(tr);
   });
 }
 
-function captureFrameMat() {
-  processingCtx.drawImage(video, 0, 0, processingCanvas.width, processingCanvas.height);
-  return cv.imread(processingCanvas);
+function renderDebug() {
+  debugList.innerHTML = `
+    <li>Tracking: <strong>${isTracking ? 'activo' : 'detenido'}</strong></li>
+    <li>Caja actual: <strong>${lastBox ? `x:${Math.round(lastBox.x)}, y:${Math.round(lastBox.y)}` : '-'}</strong></li>
+    <li>Puntos capturados: <strong>${trackingPoints.length}</strong></li>
+    <li>Score actual: <strong>${currentScore.toFixed(3)}</strong></li>
+  `;
 }
 
-function captureTemplate(box) {
-  const frame = captureFrameMat();
-  const x = Math.max(0, Math.floor(box.x));
-  const y = Math.max(0, Math.floor(box.y));
-  const w = Math.max(1, Math.min(frame.cols - x, Math.floor(box.width)));
-  const h = Math.max(1, Math.min(frame.rows - y, Math.floor(box.height)));
-  const roi = frame.roi(new cv.Rect(x, y, w, h));
-  const gray = new cv.Mat();
-  cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
-  if (templateMat) templateMat.delete();
-  templateMat = gray.clone();
-  gray.delete(); roi.delete(); frame.delete();
-  addLog('Plantilla capturada');
-}
-
-function processTrackingFrame() {
+function trackFrame() {
   if (!isTracking) return;
-  if (video.paused || video.ended) { rafId = requestAnimationFrame(processTrackingFrame); return; }
-
-  const frame = captureFrameMat();
-  const grayFrame = new cv.Mat();
-  cv.cvtColor(frame, grayFrame, cv.COLOR_RGBA2GRAY);
-
-  const margin = Math.max(lastBox.width, lastBox.height) * 1.5;
-  const sx = Math.max(0, Math.floor(lastBox.x - margin));
-  const sy = Math.max(0, Math.floor(lastBox.y - margin));
-  const ex = Math.min(grayFrame.cols, Math.ceil(lastBox.x + lastBox.width + margin));
-  const ey = Math.min(grayFrame.rows, Math.ceil(lastBox.y + lastBox.height + margin));
-  const sw = ex - sx;
-  const sh = ey - sy;
-
-  if (sw <= templateMat.cols || sh <= templateMat.rows) {
-    setStatus('ventana de búsqueda insuficiente', true);
-    grayFrame.delete(); frame.delete();
-    rafId = requestAnimationFrame(processTrackingFrame);
+  if (video.paused || video.ended) {
+    rafId = requestAnimationFrame(trackFrame);
     return;
   }
 
-  const search = grayFrame.roi(new cv.Rect(sx, sy, sw, sh));
-  const result = new cv.Mat(sh - templateMat.rows + 1, sw - templateMat.cols + 1, cv.CV_32FC1);
-  cv.matchTemplate(search, templateMat, result, cv.TM_CCOEFF_NORMED);
-  const mm = cv.minMaxLoc(result);
+  drawFrameToProcessingCanvas();
+  const { bestRect, bestScore } = findBestMatchAroundLastBox();
+  currentScore = bestScore;
 
-  const score = mm.maxVal;
-  setScore(score.toFixed(3), score < 0.45);
-  addLog(`Frame procesado | Score actual: ${score.toFixed(3)}`);
+  if (bestRect) {
+    lastBox = bestRect;
+    selectedBox = bestRect;
+    saveTrackingPoint(bestRect, bestScore);
+    log(`Frame procesado | Score actual: ${bestScore.toFixed(3)}`);
 
-  const nx = sx + mm.maxLoc.x;
-  const ny = sy + mm.maxLoc.y;
-  const box = { x: nx, y: ny, width: templateMat.cols, height: templateMat.rows, cx: nx + templateMat.cols / 2, cy: ny + templateMat.rows / 2, time: video.currentTime, score };
-
-  lastBox = box;
-  selectedBox = box;
-
-  if (Math.abs(video.currentTime - lastSavedTime) > 0.04) {
-    trackingEvents.push(box);
-    lastSavedTime = video.currentTime;
-    renderTable(); renderMetrics(); redrawOverlay();
+    if (bestScore < 0.45) {
+      setStatus('Seguimiento débil / jugador posiblemente perdido', true);
+      log('Seguimiento débil');
+    } else {
+      setStatus('Tracking activo');
+    }
+  } else {
+    setStatus('Jugador posiblemente perdido (sin mejor coincidencia)', true);
   }
 
-  if (score < 0.45) { setStatus('Jugador posiblemente perdido', true); addLog('Jugador posiblemente perdido'); }
-  else setStatus('Tracking activo');
+  targetColorText.classList.toggle('low-score', currentScore < 0.45);
+  targetColorText.textContent = `Color objetivo: rgb(${Math.round(targetColor.r)}, ${Math.round(targetColor.g)}, ${Math.round(targetColor.b)}) | Score actual: ${currentScore.toFixed(3)}`;
 
-  result.delete(); search.delete(); grayFrame.delete(); frame.delete();
-  rafId = requestAnimationFrame(processTrackingFrame);
+  renderTable();
+  renderDebug();
+  drawOverlay();
+
+  rafId = requestAnimationFrame(trackFrame);
 }
 
 function startTracking() {
-  if (!cvReady || !selectedBox || isTracking) return;
-  captureTemplate(selectedBox);
+  if (!selectedBox || isTracking) return;
+
+  drawFrameToProcessingCanvas();
+  targetColor = getAverageColorInRect(selectedBox);
   lastBox = { ...selectedBox };
   isTracking = true;
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
+
+  log('Color objetivo detectado');
+  log('Tracking iniciado');
   setStatus('Tracking iniciado');
-  addLog('Tracking iniciado');
+
+  targetColorText.textContent = `Color objetivo: rgb(${Math.round(targetColor.r)}, ${Math.round(targetColor.g)}, ${Math.round(targetColor.b)})`;
+  startTrackingBtn.disabled = true;
+  stopTrackingBtn.disabled = false;
+
   if (video.paused) video.play();
-  rafId = requestAnimationFrame(processTrackingFrame);
+  rafId = requestAnimationFrame(trackFrame);
 }
 
 function stopTracking() {
   isTracking = false;
   if (rafId) cancelAnimationFrame(rafId);
-  startBtn.disabled = !selectedBox || !cvReady;
-  stopBtn.disabled = true;
+  startTrackingBtn.disabled = !selectedBox;
+  stopTrackingBtn.disabled = true;
   setStatus('Tracking detenido');
+  renderDebug();
 }
 
-function resetTracking() {
+function clearTracking() {
   stopTracking();
-  trackingEvents.length = 0;
   selectedBox = null;
   lastBox = null;
+  targetColor = null;
+  currentScore = 0;
   lastSavedTime = -1;
-  if (templateMat) { templateMat.delete(); templateMat = null; }
-  setScore('-');
-  renderTable(); renderMetrics(); redrawOverlay();
-  addLog('Reinicio completo');
+  trackingPoints.length = 0;
+  targetColorText.textContent = 'Color objetivo: -';
+  drawOverlay();
+  renderTable();
+  renderDebug();
+  log('Tracking limpiado');
 }
 
 videoInput.addEventListener('change', (e) => {
-  const file = e.target.files?.[0]; if (!file) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
   video.src = URL.createObjectURL(file);
-  playPauseBtn.disabled = false; resetBtn.disabled = false;
-  setStatus('Vídeo cargado, dibuja caja y pulsa iniciar');
+  playPauseBtn.disabled = false;
+  clearTrackingBtn.disabled = false;
+  setStatus('Vídeo cargado');
+  log('Vídeo cargado');
 });
+
 video.addEventListener('loadedmetadata', syncCanvasSize);
+video.addEventListener('play', () => { playPauseBtn.textContent = '⏸ Pausar'; });
+video.addEventListener('pause', () => { playPauseBtn.textContent = '▶ Reproducir'; });
 playPauseBtn.addEventListener('click', () => (video.paused ? video.play() : video.pause()));
-video.addEventListener('play', () => (playPauseBtn.textContent = '⏸ Pausar'));
-video.addEventListener('pause', () => (playPauseBtn.textContent = '▶ Reproducir'));
 
-overlayCanvas.addEventListener('mousedown', (e) => { if (!video.src || isTracking) return; isDrawing = true; dragStart = getScaledPos(e); });
-overlayCanvas.addEventListener('mousemove', (e) => { if (!isDrawing || isTracking) return; selectedBox = normalizeRect(dragStart, getScaledPos(e)); redrawOverlay(); });
-overlayCanvas.addEventListener('mouseup', (e) => {
-  if (!isDrawing || isTracking) return; isDrawing = false;
-  selectedBox = normalizeRect(dragStart, getScaledPos(e));
-  if (selectedBox.width < 4 || selectedBox.height < 4) { selectedBox = null; setStatus('Caja demasiado pequeña', true); }
-  else { setStatus('Caja lista'); startBtn.disabled = !cvReady; }
-  redrawOverlay();
+sensitivityInput.addEventListener('input', () => { sensitivityValue.textContent = sensitivityInput.value; });
+searchSizeInput.addEventListener('input', () => { searchSizeValue.textContent = `${searchSizeInput.value} px`; });
+
+overlayCanvas.addEventListener('mousedown', (evt) => {
+  if (!video.src || isTracking) return;
+  isDrawing = true;
+  dragStart = getScaledMouse(evt);
 });
 
-startBtn.addEventListener('click', startTracking);
-stopBtn.addEventListener('click', stopTracking);
-resetBtn.addEventListener('click', resetTracking);
+overlayCanvas.addEventListener('mousemove', (evt) => {
+  if (!isDrawing || isTracking) return;
+  selectedBox = normalizeRect(dragStart, getScaledMouse(evt));
+  drawOverlay();
+});
 
-window.onOpenCvReady = () => {
-  cvReady = true;
-  addLog('OpenCV cargado');
-  setStatus('OpenCV cargado');
-  if (selectedBox) startBtn.disabled = false;
-};
+overlayCanvas.addEventListener('mouseup', (evt) => {
+  if (!isDrawing || isTracking) return;
+  isDrawing = false;
+  selectedBox = normalizeRect(dragStart, getScaledMouse(evt));
+  if (selectedBox.width < 6 || selectedBox.height < 6) {
+    selectedBox = null;
+    setStatus('Caja demasiado pequeña', true);
+  } else {
+    setStatus('Caja seleccionada');
+    log('Caja seleccionada');
+    startTrackingBtn.disabled = false;
+  }
+  drawOverlay();
+  renderDebug();
+});
 
-renderMetrics();
+startTrackingBtn.addEventListener('click', startTracking);
+stopTrackingBtn.addEventListener('click', stopTracking);
+clearTrackingBtn.addEventListener('click', clearTracking);
+
+renderDebug();
