@@ -75,3 +75,33 @@ streamlit run app.py
 
 - Si faltan carpetas, la app las crea automáticamente.
 - Si falta el modelo YOLO local, Ultralytics puede descargarlo automáticamente en la primera ejecución.
+
+## Estabilidad de track_id en fútbol
+
+Los IDs pueden cambiar cuando hay cruces, oclusiones o salidas de plano. ByteTrack decide asociaciones frame a frame y puede reasignar identidad cuando la evidencia visual es ambigua.
+
+### Presets ByteTrack
+
+El prototipo incluye tres presets para ajustar persistencia de identidad:
+
+- `bytetrack_conservative.yaml`
+- `bytetrack_balanced.yaml`
+- `bytetrack_aggressive.yaml`
+
+En la interfaz puedes seleccionar preset y luego ajustar manualmente:
+- `track_high_thresh`
+- `track_low_thresh`
+- `new_track_thresh`
+- `track_buffer`
+- `match_thresh`
+
+Recomendación:
+- **Conservador**: más estable en IDs, menos sensible a nuevas detecciones rápidas.
+- **Equilibrado**: compromiso general para la mayoría de partidos.
+- **Agresivo**: capta más detecciones nuevas, pero aumenta riesgo de switches.
+
+### Limitaciones de ByteTrack en fútbol
+
+- Oclusiones largas pueden romper la continuidad del ID.
+- Cruces de jugadores cercanos pueden causar intercambio de identidad.
+- Cambios de cámara bruscos y zooms afectan la consistencia del track.

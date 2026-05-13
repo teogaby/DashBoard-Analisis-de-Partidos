@@ -13,6 +13,25 @@ from ultralytics import YOLO
 logger = logging.getLogger("tracker")
 
 
+def add_tracking_quality_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        df["frame_gap_from_previous"] = []
+        df["displacement_from_previous"] = []
+        df["possible_id_switch"] = []
+        return df
+    out=[]
+    for tid,g in df.groupby("track_id"):
+        g=g.sort_values("frame_number").copy()
+        g["frame_gap_from_previous"]=g["frame_number"].diff().fillna(0).astype(int)
+        dx=g["center_x"].diff().fillna(0)
+        dy=g["center_y"].diff().fillna(0)
+        g["displacement_from_previous"]=(dx**2+dy**2)**0.5
+        jump_thr=max(80.0, g["displacement_from_previous"].mean()*2.8 if len(g)>1 else 80.0)
+        g["possible_id_switch"]=(g["displacement_from_previous"]>jump_thr) | (g["frame_gap_from_previous"]>15) | ((g["frame_gap_from_previous"]>5) & (g["displacement_from_previous"]>jump_thr*0.8))
+        out.append(g)
+    return pd.concat(out).sort_values(["frame_number","track_id"]).reset_index(drop=True)
+
+
 def _color_for_id(track_id: int) -> Tuple[int, int, int]:
     return ((37 * track_id) % 255, (17 * track_id + 99) % 255, (29 * track_id + 171) % 255)
 
@@ -87,5 +106,6 @@ def process_video(input_video: str, output_video: str, output_csv: str, model_na
 
     cap.release()
     writer.release()
-    pd.DataFrame(rows).to_csv(output_csv_path, index=False)
+    df = add_tracking_quality_columns(pd.DataFrame(rows))
+    df.to_csv(output_csv_path, index=False)
     return str(output_video_path), str(output_csv_path)

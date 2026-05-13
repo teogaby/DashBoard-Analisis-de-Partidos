@@ -34,7 +34,7 @@ REQUIRED_METRIC_COLS = {
     "primera_aparicion",
     "ultima_aparicion",
 }
-OPTIONAL_STABILITY_COLS = ["cambios_bruscos_posicion", "gaps_deteccion", "numero_reapariciones", "score_estabilidad_track_id"]
+OPTIONAL_STABILITY_COLS = ["cambios_bruscos_posicion", "gaps_deteccion", "numero_reapariciones", "score_estabilidad_track_id", "total_gaps", "max_gap", "sudden_jumps", "stability_score"]
 
 
 @st.cache_data(show_spinner=False)
@@ -214,14 +214,29 @@ with comp_tab:
 
 with calidad_tab:
     st.warning("Si un track_id cambia de jugador, marcar como no fiable.")
-    st.subheader("Track_id más estables")
-    st.dataframe(metrics_enriched.sort_values("score_estabilidad_track_id", ascending=False).head(10), use_container_width=True)
-    st.subheader("Track_id dudosos")
-    st.dataframe(metrics_enriched[(metrics_enriched["score_estabilidad_track_id"] < 0.75) & (metrics_enriched["score_estabilidad_track_id"] >= 0.45)], use_container_width=True)
-    st.subheader("Track_id con saltos bruscos")
-    st.dataframe(metrics_enriched.sort_values("cambios_bruscos_posicion", ascending=False).head(10), use_container_width=True)
-    st.subheader("Track_id con muchas desapariciones")
-    st.dataframe(metrics_enriched.sort_values("gaps_deteccion", ascending=False).head(10), use_container_width=True)
+    if "stability_score" not in metrics_enriched.columns:
+        metrics_enriched["stability_score"] = metrics_enriched.get("score_estabilidad_track_id", 0)
+    if "sudden_jumps" not in metrics_enriched.columns:
+        metrics_enriched["sudden_jumps"] = metrics_enriched.get("cambios_bruscos_posicion", 0)
+    if "total_gaps" not in metrics_enriched.columns:
+        metrics_enriched["total_gaps"] = metrics_enriched.get("gaps_deteccion", 0)
+
+    st.subheader("IDs más estables")
+    st.dataframe(metrics_enriched.sort_values("stability_score", ascending=False).head(10), use_container_width=True)
+    st.subheader("IDs con saltos bruscos")
+    st.dataframe(metrics_enriched.sort_values("sudden_jumps", ascending=False).head(10), use_container_width=True)
+    st.subheader("IDs con muchas desapariciones")
+    st.dataframe(metrics_enriched.sort_values("total_gaps", ascending=False).head(10), use_container_width=True)
+    st.subheader("IDs sospechosos de cambio de jugador")
+    st.dataframe(metrics_enriched[(metrics_enriched["stability_score"] < 0.6) | (metrics_enriched["sudden_jumps"] > 5)], use_container_width=True)
+
+    st.subheader("Timeline por track_id (apariciones, gaps y reapariciones)")
+    tid = st.selectbox("Track para timeline", sorted(tracks_view["track_id"].unique().tolist()), key="quality_timeline_track")
+    td = tracks_view[tracks_view["track_id"] == tid].sort_values("frame_number").copy()
+    td["frame_gap"] = td["frame_number"].diff().fillna(0)
+    td["gap_event"] = td["frame_gap"] > 1
+    fig_tl = px.scatter(td, x="frame_number", y="timestamp_seconds", color="gap_event", title="Timeline de detecciones y gaps")
+    st.plotly_chart(fig_tl, use_container_width=True)
 
 with exp_tab:
     st.subheader("Sistema manual de mapeo jugador")

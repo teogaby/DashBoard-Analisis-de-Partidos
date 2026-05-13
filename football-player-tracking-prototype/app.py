@@ -1,161 +1,116 @@
-"""Aplicación Streamlit para tracking de jugadores con YOLO + ByteTrack estable."""
 from __future__ import annotations
-
 import logging
 from datetime import datetime
 from pathlib import Path
-
 import cv2
 import streamlit as st
-
 from metrics import compute_metrics
 from tracker import process_video
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOADS_DIR = BASE_DIR / "uploads"
-OUTPUTS_DIR = BASE_DIR / "outputs"
-CACHE_DIR = BASE_DIR / "cache"
-SAMPLE_DIR = BASE_DIR / "sample_data"
-TRACKER_YAML = BASE_DIR / "bytetrack_custom.yaml"
+UPLOADS_DIR, OUTPUTS_DIR, CACHE_DIR = BASE_DIR / "uploads", BASE_DIR / "outputs", BASE_DIR / "cache"
+for d in [UPLOADS_DIR, OUTPUTS_DIR, CACHE_DIR, BASE_DIR / "sample_data"]: d.mkdir(parents=True, exist_ok=True)
 
-for folder in [UPLOADS_DIR, OUTPUTS_DIR, CACHE_DIR, SAMPLE_DIR]:
-    folder.mkdir(parents=True, exist_ok=True)
+PRESETS = {
+    "conservador": BASE_DIR / "bytetrack_conservative.yaml",
+    "equilibrado": BASE_DIR / "bytetrack_balanced.yaml",
+    "agresivo": BASE_DIR / "bytetrack_aggressive.yaml",
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("tracking_app")
 
 
-def folder_size_bytes(folder: Path) -> int:
-    return sum(f.stat().st_size for f in folder.glob("**/*") if f.is_file())
-
-
-def remove_files_in_folder(folder: Path) -> None:
-    folder.mkdir(parents=True, exist_ok=True)
-    for f in folder.glob("**/*"):
-        if f.is_file():
-            f.unlink(missing_ok=True)
-
-
-def keep_only_latest_file(folder: Path) -> None:
-    files = [f for f in folder.iterdir() if f.is_file()]
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in files[1:]:
-        old.unlink(missing_ok=True)
-
-
-def keep_latest_n_videos(folder: Path, n: int = 3) -> None:
-    videos = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv"}]
-    videos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in videos[n:]:
-        old.unlink(missing_ok=True)
-
-
-def get_video_duration_seconds(video_path: Path) -> float:
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise FileNotFoundError("No se pudo abrir el vídeo para calcular duración.")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
-    cap.release()
-    return (frames / fps) if fps > 0 else 0.0
-
-
-def save_uploaded_file_in_chunks(uploaded_file, dst_path: Path, chunk_size: int = 1024 * 1024) -> None:
+def save_uploaded_file_in_chunks(uploaded_file, dst_path: Path, chunk_size: int = 1024 * 1024):
     uploaded_file.seek(0)
     with open(dst_path, "wb") as out:
         while True:
-            data = uploaded_file.read(chunk_size)
-            if not data:
-                break
-            out.write(data)
+            c = uploaded_file.read(chunk_size)
+            if not c: break
+            out.write(c)
+
+
+def remove_files_in_folder(folder: Path):
+    for f in folder.glob("**/*"):
+        if f.is_file(): f.unlink(missing_ok=True)
+
+
+def keep_latest_n_videos(folder: Path, n=3):
+    vids=[f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in {'.mp4','.mov','.avi','.mkv'}]
+    vids.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in vids[n:]: old.unlink(missing_ok=True)
+
+
+def get_video_duration_minutes(video_path: Path) -> float:
+    cap=cv2.VideoCapture(str(video_path)); fps=cap.get(cv2.CAP_PROP_FPS) or 0; frames=cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0; cap.release()
+    return (frames/fps/60) if fps>0 else 0.0
+
+
+def load_yaml_values(path: Path):
+    vals={}
+    for line in path.read_text().splitlines():
+        if ":" in line:
+            k,v=line.split(":",1); vals[k.strip()]=v.strip()
+    return vals
+
+
+def write_runtime_tracker_yaml(path: Path, th, tl, nt, buf, mt):
+    path.write_text(f"""tracker_type: bytetrack
+track_high_thresh: {th}
+track_low_thresh: {tl}
+new_track_thresh: {nt}
+track_buffer: {buf}
+match_thresh: {mt}
+fuse_score: true
+""")
 
 
 st.set_page_config(page_title="Football Player Tracking Prototype", layout="wide")
 st.title("⚽ Football Player Tracking Prototype")
-st.caption("YOLO (Ultralytics) + ByteTrack + OpenCV + Streamlit")
 
 with st.sidebar:
-    st.header("Configuración")
-    model_name = st.selectbox("Modelo YOLO", ["yolov8n.pt", "yolov8s.pt"], index=0)
-    conf = st.slider("Confianza mínima", min_value=0.1, max_value=0.9, value=0.35, step=0.05)
-    st.success("Tracker fijo: ByteTrack (bytetrack_custom.yaml)")
-    st.caption("No se usa BoT-SORT en esta versión por estabilidad/compatibilidad.")
+    model_name=st.selectbox("Modelo YOLO", ["yolov8n.pt","yolov8s.pt"], index=0)
+    conf=st.slider("Confianza mínima",0.1,0.9,0.35,0.05)
+    preset=st.selectbox("Preset ByteTrack", ["conservador","equilibrado","agresivo"], index=1)
+    pv=load_yaml_values(PRESETS[preset])
+    track_high_thresh=st.slider("track_high_thresh",0.1,0.9,float(pv["track_high_thresh"]),0.05)
+    track_low_thresh=st.slider("track_low_thresh",0.01,0.5,float(pv["track_low_thresh"]),0.01)
+    new_track_thresh=st.slider("new_track_thresh",0.1,0.95,float(pv["new_track_thresh"]),0.05)
+    track_buffer=st.slider("track_buffer",10,200,int(float(pv["track_buffer"])),5)
+    match_thresh=st.slider("match_thresh",0.1,0.95,float(pv["match_thresh"]),0.05)
 
-    if st.button("Limpiar archivos temporales"):
-        remove_files_in_folder(UPLOADS_DIR)
-        remove_files_in_folder(OUTPUTS_DIR)
-        remove_files_in_folder(CACHE_DIR)
-        st.success("Limpieza completada.")
-        logger.info("limpieza completada")
+uploaded=st.file_uploader("Sube vídeo", type=["mp4","mov","avi"])
+if uploaded:
+    remove_files_in_folder(UPLOADS_DIR)
+    in_path=UPLOADS_DIR/f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded.name}"
+    save_uploaded_file_in_chunks(uploaded, in_path)
+    size_mb=in_path.stat().st_size/(1024*1024)
+    dur_min=get_video_duration_minutes(in_path)
+    st.write(f"Tamaño: **{size_mb:.2f} MB** | Duración: **{dur_min:.2f} min**")
+    st.video(str(in_path))
+    proceed=True
+    if size_mb>500 or dur_min>10:
+        st.warning("Vídeo grande/largo")
+        proceed=st.checkbox("Procesar igualmente", value=False)
 
-used_mb = (folder_size_bytes(UPLOADS_DIR) + folder_size_bytes(OUTPUTS_DIR) + folder_size_bytes(CACHE_DIR)) / (1024 * 1024)
-st.subheader("Estado del sistema")
-st.write(f"Espacio estimado usado: **{used_mb:.2f} MB**")
+    if st.button("Procesar vídeo", disabled=not proceed, type="primary"):
+        runtime_yaml=OUTPUTS_DIR/"tracker_config_used.yaml"
+        write_runtime_tracker_yaml(runtime_yaml, track_high_thresh, track_low_thresh, new_track_thresh, track_buffer, match_thresh)
+        logger.info("tracker cargado")
+        logger.info("configuración tracker usada: %s", runtime_yaml)
+        progress=st.progress(0.0, text="Procesando...")
+        out_video=OUTPUTS_DIR/f"tracked_{in_path.stem}.mp4"
+        out_csv=OUTPUTS_DIR/f"tracking_{in_path.stem}.csv"
+        out_metrics=OUTPUTS_DIR/f"metrics_{in_path.stem}.csv"
 
-uploaded_file = st.file_uploader("Sube un vídeo (MP4, MOV, AVI)", type=["mp4", "mov", "avi"])
-
-if uploaded_file is not None:
-    try:
-        remove_files_in_folder(UPLOADS_DIR)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        input_path = UPLOADS_DIR / f"{timestamp}_{uploaded_file.name}"
-        save_uploaded_file_in_chunks(uploaded_file, input_path)
-        keep_only_latest_file(UPLOADS_DIR)
-
-        size_mb = input_path.stat().st_size / (1024 * 1024)
-        duration_min = get_video_duration_seconds(input_path) / 60
-        st.write(f"Tamaño: **{size_mb:.2f} MB** | Duración: **{duration_min:.2f} min**")
-        st.video(str(input_path))
-
-        proceed = True
-        if size_mb > 500 or duration_min > 10:
-            st.warning("Vídeo grande/largo. Puedes cancelar procesamiento.")
-            proceed = st.checkbox("Confirmo procesar igualmente", value=False)
-
-        if st.button("Procesar vídeo", type="primary", disabled=not proceed):
-            if not TRACKER_YAML.exists():
-                raise FileNotFoundError("Error cargando configuración del tracker")
-
-            # Se usa YAML local del proyecto para evitar incompatibilidades de versión
-            # y NO tocar default.yaml interno de ultralytics/site-packages.
-            tracker_cfg_used = OUTPUTS_DIR / "tracker_config_used.yaml"
-            tracker_cfg_used.write_text(TRACKER_YAML.read_text())
-            logger.info("tracker cargado")
-            logger.info("configuración tracker usada: %s", tracker_cfg_used)
-
-            out_video = OUTPUTS_DIR / f"tracked_{input_path.stem}.mp4"
-            out_csv = OUTPUTS_DIR / f"tracking_{input_path.stem}.csv"
-            out_metrics = OUTPUTS_DIR / f"metrics_{input_path.stem}.csv"
-
-            progress = st.progress(0.0, text="Procesando vídeo...")
-
-            def _update(v: float):
-                progress.progress(max(0.0, min(v, 1.0)), text=f"Procesando vídeo... {int(v*100)}%")
-
-            final_video_path, final_csv_path = process_video(
-                input_video=str(input_path),
-                output_video=str(out_video),
-                output_csv=str(out_csv),
-                model_name=model_name,
-                conf=conf,
-                tracker_cfg=str(TRACKER_YAML),
-                progress_callback=_update,
-            )
-
-            metrics_df = compute_metrics(final_csv_path)
-            metrics_df.to_csv(out_metrics, index=False)
-            keep_latest_n_videos(OUTPUTS_DIR, 3)
-
-            st.success("Procesamiento completado.")
-            st.video(final_video_path)
-            st.dataframe(metrics_df, use_container_width=True)
-
-    except (OSError, MemoryError, FileNotFoundError) as exc:
-        msg = str(exc)
-        if "tracker" in msg.lower() or "yaml" in msg.lower():
-            st.error("Error cargando configuración del tracker")
+        try:
+            v,csv=process_video(str(in_path), str(out_video), str(out_csv), model_name=model_name, conf=conf, tracker_cfg=str(runtime_yaml), progress_callback=lambda p: progress.progress(p, text=f"Procesando... {int(p*100)}%"))
+            m=compute_metrics(csv); m.to_csv(out_metrics,index=False)
+            keep_latest_n_videos(OUTPUTS_DIR,3)
+            st.success("Procesado completado")
+            st.video(v); st.dataframe(m, use_container_width=True)
+        except Exception as exc:
+            st.error("Error cargando configuración del tracker" if "tracker" in str(exc).lower() else str(exc))
             logger.error("errores de tracking: %s", exc)
-        else:
-            st.error(f"Error: {exc}")
 else:
-    st.info("Sube un vídeo para comenzar.")
+    st.info("Sube un vídeo para comenzar")
