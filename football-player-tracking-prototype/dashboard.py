@@ -34,6 +34,7 @@ REQUIRED_METRIC_COLS = {
     "primera_aparicion",
     "ultima_aparicion",
 }
+OPTIONAL_STABILITY_COLS = ["cambios_bruscos_posicion", "gaps_deteccion", "numero_reapariciones", "score_estabilidad_track_id"]
 
 
 @st.cache_data(show_spinner=False)
@@ -118,6 +119,9 @@ if issues:
     st.stop()
 
 mapping_df = load_mapping(mapping_path)
+for c in OPTIONAL_STABILITY_COLS:
+    if c not in metrics_df.columns:
+        metrics_df[c] = 0
 metrics_enriched = enrich_with_mapping(metrics_df, mapping_df)
 metrics_enriched["estado_tracking"] = metrics_enriched.apply(reliability_label, axis=1)
 
@@ -130,8 +134,8 @@ traj_color = st.color_picker("Color de trayectorias", "#31d66f")
 show_points = st.toggle("Mostrar puntos", value=True)
 
 # Tabs
-resumen_tab, jugadores_tab, tray_tab, heat_tab, comp_tab, exp_tab = st.tabs([
-    "Resumen", "Jugadores", "Trayectorias", "Heatmaps", "Comparativas", "Exportación"
+resumen_tab, jugadores_tab, tray_tab, heat_tab, comp_tab, calidad_tab, exp_tab = st.tabs([
+    "Resumen", "Jugadores", "Trayectorias", "Heatmaps", "Comparativas", "Calidad del tracking", "Exportación"
 ])
 
 with resumen_tab:
@@ -206,6 +210,18 @@ with comp_tab:
     st.plotly_chart(px.bar(cmp_df, x="track_id", y="distancia_pixeles_aproximada", title="Comparativa distancia"), use_container_width=True)
     st.plotly_chart(px.bar(cmp_df, x="track_id", y="tiempo_visible_segundos", title="Comparativa tiempo visible"), use_container_width=True)
     st.plotly_chart(px.bar(cmp_df, x="track_id", y="velocidad_media_pixeles_segundo", title="Comparativa velocidad media"), use_container_width=True)
+
+
+with calidad_tab:
+    st.warning("Si un track_id cambia de jugador, marcar como no fiable.")
+    st.subheader("Track_id más estables")
+    st.dataframe(metrics_enriched.sort_values("score_estabilidad_track_id", ascending=False).head(10), use_container_width=True)
+    st.subheader("Track_id dudosos")
+    st.dataframe(metrics_enriched[(metrics_enriched["score_estabilidad_track_id"] < 0.75) & (metrics_enriched["score_estabilidad_track_id"] >= 0.45)], use_container_width=True)
+    st.subheader("Track_id con saltos bruscos")
+    st.dataframe(metrics_enriched.sort_values("cambios_bruscos_posicion", ascending=False).head(10), use_container_width=True)
+    st.subheader("Track_id con muchas desapariciones")
+    st.dataframe(metrics_enriched.sort_values("gaps_deteccion", ascending=False).head(10), use_container_width=True)
 
 with exp_tab:
     st.subheader("Sistema manual de mapeo jugador")

@@ -91,6 +91,22 @@ def get_video_duration_seconds(video_path: Path) -> float:
     return (frames / fps) if fps > 0 else 0.0
 
 
+
+
+def build_tracker_config(kind: str, out_dir: Path, th: float, tl: float, nt: float, buf: int, mt: float) -> Path:
+    name = "botsort.yaml" if kind == "botsort" else "bytetrack.yaml"
+    cfg = out_dir / "tracker_config_used.yaml"
+    content = f"""tracker_type: {kind}
+track_high_thresh: {th}
+track_low_thresh: {tl}
+new_track_thresh: {nt}
+track_buffer: {buf}
+match_thresh: {mt}
+mot20: false
+"""
+    cfg.write_text(content)
+    return cfg
+
 def save_uploaded_file_in_chunks(uploaded_file, dst_path: Path, chunk_size: int = 1024 * 1024) -> None:
     """Guarda subida en bloques binarios para reducir pico de memoria."""
     uploaded_file.seek(0)
@@ -110,7 +126,13 @@ with st.sidebar:
     st.header("Configuración")
     model_name = st.selectbox("Modelo YOLO", ["yolov8n.pt", "yolov8s.pt"], index=0)
     conf = st.slider("Confianza mínima", min_value=0.1, max_value=0.9, value=0.35, step=0.05)
-    tracker_cfg = st.selectbox("Tracker", ["bytetrack.yaml", "botsort.yaml"], index=0)
+    tracker_kind = st.selectbox("Tracker", ["botsort", "bytetrack"], index=0, help="Recomendado para fútbol: BoT-SORT")
+    st.caption("Recomendado: BoT-SORT para mayor persistencia de identidad.")
+    track_high_thresh = st.slider("track_high_thresh", 0.1, 0.9, 0.5, 0.05)
+    track_low_thresh = st.slider("track_low_thresh", 0.05, 0.8, 0.1, 0.05)
+    new_track_thresh = st.slider("new_track_thresh", 0.1, 0.9, 0.6, 0.05)
+    track_buffer = st.slider("track_buffer", 10, 120, 60, 5)
+    match_thresh = st.slider("match_thresh", 0.1, 0.95, 0.8, 0.05)
 
     if st.button("Limpiar archivos temporales"):
         try:
@@ -166,6 +188,7 @@ if uploaded_file is not None:
             proceed = True
 
         if st.button("Procesar vídeo", type="primary", disabled=not proceed):
+            tracker_cfg_path = build_tracker_config(tracker_kind, OUTPUTS_DIR, track_high_thresh, track_low_thresh, new_track_thresh, track_buffer, match_thresh)
             out_video = OUTPUTS_DIR / f"tracked_{input_path.stem}.mp4"
             out_csv = OUTPUTS_DIR / f"tracking_{input_path.stem}.csv"
             out_metrics = OUTPUTS_DIR / f"metrics_{input_path.stem}.csv"
@@ -182,7 +205,7 @@ if uploaded_file is not None:
                     output_csv=str(out_csv),
                     model_name=model_name,
                     conf=conf,
-                    tracker_cfg=tracker_cfg,
+                    tracker_cfg=str(tracker_cfg_path),
                     progress_callback=_update_progress,
                 )
 
