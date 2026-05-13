@@ -5,7 +5,7 @@ Prototipo funcional local para seguimiento de jugadores/personas en vídeo de f�
 - **Python 3.11+**
 - **Streamlit** (interfaz web local)
 - **Ultralytics YOLO** (detección + tracking)
-- **ByteTrack / BoT-SORT** (tracking multi-objeto)
+- **ByteTrack** (tracking multi-objeto)
 - **OpenCV** (lectura/escritura/anotación de vídeo)
 - **Pandas** (métricas y exportación)
 
@@ -44,8 +44,7 @@ streamlit run app.py
 1. Permite subir un vídeo (`mp4`, `mov`, `avi`).
 2. Guarda el archivo en `uploads/`.
 3. Procesa el vídeo con `YOLO.track(..., persist=True)` usando tracker seleccionable:
-   - `bytetrack.yaml` (por defecto)
-   - `botsort.yaml` (opcional)
+   - `bytetrack_custom.yaml` (config local estable)
 4. Detecta clase **person** (jugadores y otras personas visibles).
 5. Dibuja en el vídeo:
    - caja de detección
