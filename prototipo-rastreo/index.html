@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rastreo por color de camiseta</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <h1>Rastreo de Jugador por Color Dominante</h1>
+        <p>Prototipo experimental en JavaScript puro (sin OpenCV).</p>
+      </header>
+
+      <section class="panel panel--controls">
+        <div class="control-group">
+          <label for="videoInput">Cargar vídeo</label>
+          <input id="videoInput" type="file" accept="video/*" />
+        </div>
+        <div class="control-group">
+          <label for="sensitivityInput">Sensibilidad de color</label>
+          <input id="sensitivityInput" type="range" min="20" max="180" value="80" />
+          <span id="sensitivityValue">80</span>
+        </div>
+        <div class="control-group">
+          <label for="searchSizeInput">Tamaño zona de búsqueda</label>
+          <input id="searchSizeInput" type="range" min="20" max="240" value="90" />
+          <span id="searchSizeValue">90 px</span>
+        </div>
+        <div class="control-group control-group--inline">
+          <button id="playPauseBtn" disabled>▶ Reproducir</button>
+          <button id="startTrackingBtn" disabled>Iniciar seguimiento</button>
+          <button id="stopTrackingBtn" disabled>Detener seguimiento</button>
+          <button id="clearTrackingBtn" disabled>Limpiar tracking</button>
+        </div>
+      </section>
+
+      <section class="panel panel--video">
+        <div class="video-wrapper">
+          <video id="video" controls preload="metadata"></video>
+          <canvas id="overlayCanvas"></canvas>
+          <canvas id="processingCanvas" class="hidden-canvas"></canvas>
+        </div>
+        <p id="statusBadge" class="status-badge">Estado: listo</p>
+        <p id="targetColorText" class="score-text">Color objetivo: -</p>
+      </section>
+
+      <section class="dashboard-grid">
+        <article class="panel">
+          <h2>Debug</h2>
+          <ul id="debugList" class="metrics-list"></ul>
+          <h3>Logs</h3>
+          <div id="logPanel" class="log-panel"></div>
+        </article>
+        <article class="panel">
+          <h2>Eventos de tracking</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>Tiempo</th><th>X</th><th>Y</th><th>W</th><th>H</th><th>Score</th></tr></thead>
+              <tbody id="eventsBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
